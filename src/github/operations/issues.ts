@@ -56,6 +56,21 @@ export async function getIssue(owner: string, repo: string, issue_number: number
   return githubRequest(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}`);
 }
 
+export async function getIssueComments(
+  owner: string,
+  repo: string,
+  issue_number: number
+) {
+  const urlParams: Record<string, string | undefined> = {
+    owner: owner,
+    repo: repo,
+    issue_number: issue_number.toString()
+  };
+  return githubRequest(
+    buildUrl(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/comments`, urlParams)
+  );
+}
+
 export async function addIssueComment(
   owner: string,
   repo: string,

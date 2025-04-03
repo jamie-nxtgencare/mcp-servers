@@ -349,6 +349,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case "get_issue_comments": {
+        const args = issues.GetIssueSchema.parse(request.params.arguments);
+        const { owner, repo, issue_number } = args;
+        const result = await issues.getIssueComments(owner, repo, issue_number);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
       case "add_issue_comment": {
         const args = issues.IssueCommentSchema.parse(request.params.arguments);
         const { owner, repo, issue_number, body } = args;
