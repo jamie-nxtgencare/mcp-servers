@@ -40,6 +40,15 @@ export const ListIssuesOptionsSchema = z.object({
   state: z.enum(["open", "closed", "all"]).optional(),
 });
 
+export const GetIssueCommentsOptionsSchema = z.object({
+  owner: z.string(),
+  repo: z.string(),
+  issue_number: z.number(),
+  page: z.number().optional(),
+  per_page: z.number().optional(),
+  since: z.string().optional(),
+});
+
 export const UpdateIssueOptionsSchema = z.object({
   owner: z.string(),
   repo: z.string(),
@@ -59,16 +68,15 @@ export async function getIssue(owner: string, repo: string, issue_number: number
 export async function getIssueComments(
   owner: string,
   repo: string,
-  issue_number: number
+  issue_number: number,
+  options: Omit<z.infer<typeof GetIssueCommentsOptionsSchema>, "owner" | "repo" | "issue_number">
 ) {
   const urlParams: Record<string, string | undefined> = {
-    owner: owner,
-    repo: repo,
-    issue_number: issue_number.toString()
+    page: options.page?.toString(),
+    per_page: options.per_page?.toString(),
+    since: options.since,
   };
-  return githubRequest(
-    buildUrl(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/comments`, urlParams)
-  );
+  return githubRequest(`https://api.github.com/repos/${owner}/${repo}/issues/${issue_number}/comments`, urlParams);
 }
 
 export async function addIssueComment(

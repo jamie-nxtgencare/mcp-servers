@@ -104,7 +104,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "get_issue_comments",
         description: "Get the comments on an issue",
-        inputSchema: zodToJsonSchema(issues.GetIssueSchema)
+        inputSchema: zodToJsonSchema(issues.GetIssueCommentsOptionsSchema)
       },
       {
         name: "create_pull_request",
@@ -390,9 +390,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "get_issue_comments": {
-        const args = issues.GetIssueSchema.parse(request.params.arguments);
-        const { owner, repo, issue_number } = args;
-        const result = await issues.getIssueComments(owner, repo, issue_number);
+        const args = issues.GetIssueCommentsOptionsSchema.parse(request.params.arguments);
+        const { owner, repo, issue_number, ...options } = args;
+        const result = await issues.getIssueComments(owner, repo, issue_number, options);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
