@@ -102,6 +102,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: zodToJsonSchema(issues.CreateIssueSchema),
       },
       {
+        name: "get_issue_comments",
+        description: "Get the comments on an issue",
+        inputSchema: zodToJsonSchema(issues.GetIssueSchema)
+      },
+      {
         name: "create_pull_request",
         description: "Create a new pull request in a GitHub repository",
         inputSchema: zodToJsonSchema(pulls.CreatePullRequestSchema),
