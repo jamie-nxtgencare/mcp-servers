@@ -146,6 +146,15 @@ const GetFileInfoArgsSchema = z.object({
   path: z.string(),
 });
 
+const SearchFileContentsArgsSchema = z.object({
+  path: z.string().describe('Directory or file to search'),
+  pattern: z.string().describe('Text pattern to search for within files'),
+  filePattern: z.string().optional().default('*').describe('Optional file name pattern to filter which files to search'),
+  maxResults: z.number().optional().default(100).describe('Maximum number of results to return'),
+  contextLines: z.number().optional().default(1).describe('Number of context lines to include before and after matches'),
+  caseSensitive: z.boolean().optional().default(false).describe('Whether the search should be case-sensitive')
+});
+
 const ToolInputSchema = ToolSchema.shape.inputSchema;
 type ToolInput = z.infer<typeof ToolInputSchema>;
 
@@ -230,6 +239,132 @@ async function searchFiles(
 
   await search(rootPath);
   return results;
+}
+
+interface FileContentMatch {
+  file: string;
+  line: number;
+  match: string;
+  content: string;
+  context: string[];
+}
+
+async function searchFileContents(
+  searchPath: string,
+  searchPattern: string,
+  filePattern: string = '*',
+  maxResults: number = 100,
+  contextLines: number = 1,
+  caseSensitive: boolean = false
+): Promise<FileContentMatch[]> {
+  const matches: FileContentMatch[] = [];
+  let resultCount = 0;
+  
+  // Convert searchPattern to RegExp
+  const flags = caseSensitive ? 'g' : 'ig';
+  const regex = new RegExp(searchPattern, flags);
+  
+  // Helper function to check if file matches the pattern
+  function isFileMatch(filename: string): boolean {
+    return minimatch(filename, filePattern, { nocase: !caseSensitive, dot: true });
+  }
+  
+  // Process a single file
+  async function processFile(filePath: string) {
+    try {
+      // Skip binary files and only process text files
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) return;
+      
+      const filename = path.basename(filePath);
+      if (!isFileMatch(filename)) return;
+      
+      // Read file content
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n');
+      
+      // Find matches in the file content
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const matchResult = line.match(regex);
+        
+        if (matchResult) {
+          // Extract context lines
+          const contextStart = Math.max(0, i - contextLines);
+          const contextEnd = Math.min(lines.length - 1, i + contextLines);
+          const context = [];
+          
+          for (let j = contextStart; j <= contextEnd; j++) {
+            if (j === i) {
+              context.push(`[${j + 1}] ${lines[j]}`);
+            } else {
+              context.push(`${j + 1}: ${lines[j]}`);
+            }
+          }
+          
+          matches.push({
+            file: filePath,
+            line: i + 1,
+            match: matchResult[0],
+            content: line,
+            context: context
+          });
+          
+          resultCount++;
+          if (resultCount >= maxResults) return;
+        }
+      }
+    } catch (error) {
+      // Skip files that cannot be read or processed
+      return;
+    }
+  }
+  
+  // Recursive search function
+  async function searchDirectory(dirPath: string) {
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        if (resultCount >= maxResults) break;
+        
+        const fullPath = path.join(dirPath, entry.name);
+        try {
+          // Validate path before processing
+          await validatePath(fullPath);
+          
+          if (entry.isDirectory()) {
+            await searchDirectory(fullPath);
+          } else if (entry.isFile()) {
+            await processFile(fullPath);
+          }
+        } catch (error) {
+          // Skip invalid paths
+          continue;
+        }
+      }
+    } catch (error) {
+      // Skip directories that cannot be read
+      return;
+    }
+  }
+  
+  // Check if searchPath is a file or directory
+  try {
+    const stats = await fs.stat(searchPath);
+    
+    if (stats.isFile()) {
+      // If it's a file, process only that file
+      await processFile(searchPath);
+    } else if (stats.isDirectory()) {
+      // If it's a directory, search recursively
+      await searchDirectory(searchPath);
+    }
+  } catch (error) {
+    throw new Error(`Error accessing path ${searchPath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  
+  return matches;
 }
 
 // file editing and diffing utilities
@@ -435,6 +570,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [],
         },
       },
+      {
+        name: "search_file_contents",
+        description:
+          "Search for text patterns within file contents (grep-like functionality). " +
+          "Recursively searches through files in the given directory that match the file pattern. " +
+          "Returns matched lines with configurable context lines before and after each match. " +
+          "Perfect for finding code, configuration settings, or text within multiple files. " +
+          "Only searches within allowed directories.",
+        inputSchema: zodToJsonSchema(SearchFileContentsArgsSchema) as ToolInput,
+      },
     ],
   };
 });
@@ -618,6 +763,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: `Allowed directories:\n${allowedDirectories.join('\n')}`
           }],
+        };
+      }
+      
+      case "search_file_contents": {
+        const parsed = SearchFileContentsArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for search_file_contents: ${parsed.error}`);
+        }
+        
+        // Validate the search path
+        const validPath = await validatePath(parsed.data.path);
+        
+        // Perform the search
+        const results = await searchFileContents(
+          validPath,
+          parsed.data.pattern,
+          parsed.data.filePattern,
+          parsed.data.maxResults,
+          parsed.data.contextLines,
+          parsed.data.caseSensitive
+        );
+        
+        // Format the results
+        let formattedResults = '';
+        
+        if (results.length === 0) {
+          formattedResults = 'No matches found.';
+        } else {
+          const files = new Set(results.map(r => r.file));
+          formattedResults = `Found ${results.length} matches in ${files.size} files:\n\n`;
+          
+          let currentFile = '';
+          for (const result of results) {
+            if (currentFile !== result.file) {
+              currentFile = result.file;
+              formattedResults += `\n## ${currentFile}\n`;
+            }
+            
+            formattedResults += `\nMatch at line ${result.line}: "${result.match}"\n`;
+            formattedResults += `${result.context.join('\n')}\n`;
+          }
+        }
+        
+        return {
+          content: [{ type: "text", text: formattedResults }],
         };
       }
 

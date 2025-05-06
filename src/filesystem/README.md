@@ -91,6 +91,19 @@ Node.js server implementing Model Context Protocol (MCP) for filesystem operatio
     - Type (file/directory)
     - Permissions
 
+- **search_file_contents**
+  - Search for text patterns within file contents (grep-like functionality)
+  - Inputs:
+    - `path` (string): Directory or file to search
+    - `pattern` (string): Text pattern to search for within files
+    - `filePattern` (string, optional): File name pattern to filter which files to search (default: '*')
+    - `maxResults` (number, optional): Maximum number of results to return (default: 100)
+    - `contextLines` (number, optional): Number of context lines to include before and after matches (default: 1)
+    - `caseSensitive` (boolean, optional): Whether the search should be case-sensitive (default: false)
+  - Returns:
+    - Formatted results showing matched lines with context
+    - File paths, line numbers, and matched content
+
 - **list_allowed_directories**
   - List all directories the server is allowed to access
   - No input required
